@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>User Dashboard Search</title>
+
+<script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
+
+<style>
+:root{
+--primary:#0088cc;--dark:#006699;--success:#28a745;--warning:#ffc107;
+--info:#17a2b8;--purple:#6f42c1;--bg:#f4f6f9;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--bg);font-family:Arial,sans-serif;color:#333}
+.container{max-width:600px;margin:auto}
+.search-card,.stat-card,.msg{background:#fff;box-shadow:0 3px 12px rgba(0,0,0,.06)}
+.search-card{padding:15px;border-radius:16px;margin-bottom:20px}
+.form{display:flex;gap:10px}
+input{flex:1;min-width:0;padding:14px;border:2px solid #1598ca;border-radius:12px;font-size:16px;outline:none}
+button{border:0;cursor:pointer;font-weight:bold}
+.search-btn{background:var(--primary);color:#fff;padding:0 20px;border-radius:12px;font-size:16px}
+.search-btn:disabled{opacity:.6}
+.header{background:linear-gradient(135deg,#0088cc,#005580);color:#fff;padding:24px 20px;border-radius:18px;margin-bottom:20px}
+.header h2{margin:0 0 14px;font-size:22px}
+.id-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.copy{background:rgba(255,255,255,.25);color:#fff;padding:7px 12px;border-radius:8px}
+.copy.done{background:var(--success)}
+.stats{display:flex;flex-direction:column;gap:15px}
+.stat-card{padding:20px;border-radius:15px;border-left:7px solid var(--primary)}
+.balance{border-left-color:var(--success)}
+.ads{border-left-color:var(--warning)}
+.ref{border-left-color:var(--info)}
+.refs{border-left-color:var(--purple)}
+.stat-card h3{margin:0;color:#666;font-size:14px}
+.stat-card p{margin:8px 0 0;font-size:27px;font-weight:bold;color:#222}
+.msg{padding:25px 20px;border-radius:14px;text-align:center;color:#666}
+.error{color:#b00020;border-left:5px solid #dc3545}
+.loading{color:#006699;border-left:5px solid var(--primary)}
+.source{font-size:12px;color:#777;margin-top:10px}
+.hidden{display:none}
+@media(max-width:480px){
+body{padding:12px}.form{gap:8px}input{font-size:15px}.search-btn{padding:0 14px}
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<div class="search-card">
+<div class="form">
+<input id="searchInput" type="text" inputmode="numeric"
+placeholder="User ID প্রবেশ করুন (e.g. 7258628659)" autocomplete="off">
+<button id="searchBtn" class="search-btn" onclick="searchUser()">🔍 Search</button>
+</div>
+</div>
+
+<div id="dataContainer" class="hidden">
+<div class="header">
+<h2>👤 USER INFORMATION</h2>
+<div class="id-line">
+<strong>🆔 User ID:</strong>
+<span id="displayUserId">-</span>
+<button id="copyBtn" class="copy" onclick="copyUserId()">📋 Copy</button>
+</div>
+<div id="source" class="source"></div>
+</div>
+
+<div class="stats">
+<div class="stat-card balance">
+<h3>💰 CURRENT BALANCE</h3>
+<p id="statBalance">0 points</p>
+</div>
+
+<div class="stat-card ads">
+<h3>📺 AD EARN POINTS</h3>
+<p id="statAdPoints">0 points</p>
+</div>
+
+<div class="stat-card ref">
+<h3>🎁 REFERRAL POINTS</h3>
+<p id="statRefPoints">0 points</p>
+</div>
+
+<div class="stat-card refs">
+<h3>👥 TOTAL REFERRALS</h3>
+<p id="statTotalRefs">0 জন</p>
+</div>
+</div>
+</div>
+
+<div id="msgBox" class="msg">
+🔍 তথ্য পেতে একটি সঠিক User ID দিয়ে Search করুন।
+</div>
+
+</div>
+
+<script>
+const firebaseConfig={
+apiKey:"AIzaSyBR9cx11EjwDzoCShY_8_j-pBix_brYA50",
+authDomain:"ads-earning-26019.firebaseapp.com",
+databaseURL:"https://ads-earning-26019-default-rtdb.asia-southeast1.firebasedatabase.app",
+projectId:"ads-earning-26019",
+storageBucket:"ads-earning-26019.firebasestorage.app",
+messagingSenderId:"226920017119",
+appId:"1:226920017119:web:f9e5d2baac8cc86ab30d6a"
+};
+
+if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+
+const rtdb=firebase.database();
+const firestore=firebase.firestore();
+
+const input=document.getElementById("searchInput");
+const btn=document.getElementById("searchBtn");
+const box=document.getElementById("msgBox");
+const data=document.getElementById("dataContainer");
+
+function message(text,type=""){
+box.className="msg "+type;
+box.innerHTML=text;
+box.classList.remove("hidden");
+}
+
+function num(v){
+if(v===null||v===undefined||v==="") return 0;
+const n=Number(v);
+return Number.isFinite(n)?n:0;
+}
+
+function field(obj,names){
+for(const name of names){
+if(obj && obj[name]!==undefined && obj[name]!==null) return obj[name];
+}
+return 0;
+}
+
+function referralCount(v){
+if(Array.isArray(v)) return v.length;
+if(v && typeof v==="object") return Object.keys(v).length;
+return num(v);
+}
+
+/*
+একটি database সর্বোচ্চ ৬ সেকেন্ড অপেক্ষা করবে।
+RTDB এবং Firestore parallel-এ চলে।
+যেটিতে আগে user পাওয়া যায় সেটিই ব্যবহার করা হবে।
+*/
+function withTimeout(promise,ms){
+return Promise.race([
+promise,
+new Promise((_,reject)=>setTimeout(()=>reject(new Error("TIMEOUT")),ms))
+]);
+}
+
+async function searchUser(){
+const userId=input.value.trim();
+
+if(!userId){
+data.classList.add("hidden");
+message("⚠️ দয়া করে একটি User ID প্রদান করুন।","error");
+return;
+}
+
+btn.disabled=true;
+btn.textContent="⏳ Searching...";
+data.classList.add("hidden");
+message("⏳ দ্রুত ডাটাবেসে খোঁজা হচ্ছে...","loading");
+
+let rtdbPromise=withTimeout(
+rtdb.ref("users/"+userId).once("value").then(s=>s.exists()?s.val():null),
+6000
+).catch(()=>null);
+
+let fsPromise=withTimeout(
+firestore.collection("users").doc(userId).get().then(d=>d.exists?d.data():null),
+6000
+).catch(()=>null);
+
+try{
+const results=await Promise.all([rtdbPromise,fsPromise]);
+
+let userData=results[0];
+let source="Realtime Database";
+
+if(!userData){
+userData=results[1];
+source="Firestore";
+}
+
+if(!userData){
+throw new Error("NOT_FOUND");
+}
+
+document.getElementById("displayUserId").textContent=userId;
+
+const balance=field(userData,[
+"balance","points","currentBalance","totalPoints"
+]);
+
+const adPoints=field(userData,[
+"adPoints","adEarn","adEarnPoints","adPointsEarned","adsPoints"
+]);
+
+const refPoints=field(userData,[
+"referralPoints","refPoints","referralEarn",
+"referralEarnings","referralIncome"
+]);
+
+let totalRefs=field(userData,[
+"totalReferrals","referralsCount","referralCount","totalReferral"
+]);
+
+if(!totalRefs && userData.referrals!==undefined){
+totalRefs=referralCount(userData.referrals);
+}
+
+document.getElementById("statBalance").textContent=num(balance)+" points";
+document.getElementById("statAdPoints").textContent=num(adPoints)+" points";
+document.getElementById("statRefPoints").textContent=num(refPoints)+" points";
+document.getElementById("statTotalRefs").textContent=num(totalRefs)+" জন";
+document.getElementById("source").textContent="Data source: "+source;
+
+box.classList.add("hidden");
+data.classList.remove("hidden");
+
+console.log("Found user:",userData);
+
+}catch(error){
+console.error(error);
+if(error.message==="NOT_FOUND"){
+message("⚠️ User ID "+userId+" দিয়ে কোনো তথ্য পাওয়া যায়নি।","error");
+}else{
+message("❌ Firebase থেকে ডাটা পড়তে সমস্যা হয়েছে। Firebase Rules/Database structure পরীক্ষা করুন।","error");
+}
+}finally{
+btn.disabled=false;
+btn.textContent="🔍 Search";
+}
+}
+
+input.addEventListener("keydown",e=>{
+if(e.key==="Enter") searchUser();
+});
+
+async function copyUserId(){
+const id=document.getElementById("displayUserId").textContent;
+const button=document.getElementById("copyBtn");
+
+try{
+await navigator.clipboard.writeText(id);
+}catch(e){
+const t=document.createElement("textarea");
+t.value=id;
+document.body.appendChild(t);
+t.select();
+document.execCommand("copy");
+t.remove();
+}
+
+button.textContent="✅ Copied";
+button.classList.add("done");
+
+setTimeout(()=>{
+button.textContent="📋 Copy";
+button.classList.remove("done");
+},1500);
+}
+</script>
+</body>
+</html>
